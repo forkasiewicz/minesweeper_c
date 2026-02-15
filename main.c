@@ -1,5 +1,6 @@
 #include <raylib.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
@@ -32,6 +33,7 @@ typedef struct {
   Vec2i32 size;
   u32 **board;
   u32 **revealed;
+  u32 mines;
   GameState state;
 } Game;
 
@@ -47,20 +49,37 @@ typedef enum {
   CELL_EIGHT = 8,
   CELL_HIDDEN = 9,
   CELL_FLAG = 10,
-  CELL_BOMB = 12,
-  CELL_BOMB_EXPLODED = 11
+  CELL_MINE = 12,
+  CELL_MINE_EXPLODED = 11
 } CellType;
 
-void map_generate(Game *game, i32 seed, u32 width, u32 height, u32 mine_amt);
-void game_init(Game *game, u32 width, u32 height);
+void map_generate(Game *game, i32 seed, u32 width, u32 height, u32 mines);
+void game_init(Game *game, u32 width, u32 height, u32 mines);
 void game_free(Game *game);
 void cell_uncover(Game *game, i32 x, i32 y);
 void cell_draw(TextureAtlas textureAtlas, u32 index, Vector2 pos, i32 padding);
+void mine_set(Game *game, u32 width, u32 height);
 
-i32 main(void) {
+i32 main(i32 argc, char *argv[]) {
+  i32 columns = 0;
+  i32 rows = 0;
+  i32 mines = 0;
+
+  if (argc == 1) {
+    columns = 16;
+    rows = 16;
+    mines = 40;
+  } else if (argc == 4) {
+    columns = atoi(argv[1]);
+    rows = atoi(argv[2]);
+    mines = atoi(argv[3]);
+  } else if (argc != 4 || rows < 0 || columns < 0 || mines < 0) {
+    printf("usage: %s <columns> <rows> <mines>\n", argv[0]);
+    exit(1);
+  }
 
   Game game;
-  map_generate(&game, time(NULL), 16, 16, 40);
+  map_generate(&game, time(NULL), columns, rows, mines);
 
   TextureAtlas textureAtlas = {.cell_size = 32, .cols = 8, .scale = 1.5f};
 
@@ -76,7 +95,11 @@ i32 main(void) {
 
   SetTargetFPS(GetMonitorRefreshRate(GetCurrentMonitor()));
 
-  Color bg_color = {200, 200, 200, 255};
+  Color color_gray = {193, 193, 193, 255};
+  Color color_red = {228, 32, 21, 255};
+  Color color_green = {0, 146, 103, 255};
+
+  Color bg_color = color_gray;
 
   while (!WindowShouldClose()) {
     BeginDrawing();
@@ -93,7 +116,7 @@ i32 main(void) {
 
     switch (game.state) {
     case STATE_PLAYING:
-      bg_color = (Color){200, 200, 200, 255};
+      bg_color = color_gray;
 
       if (cell_coords.x >= 0 && cell_coords.x <= game.size.x && cell_coords.y >= 0 && cell_coords.y <= game.size.y) {
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -103,7 +126,8 @@ i32 main(void) {
             game.revealed[cell_coords.x][cell_coords.y] = game.board[cell_coords.x][cell_coords.y];
           }
 
-          if (game.revealed[cell_coords.x][cell_coords.y] == CELL_BOMB) {
+          // if clicked on mine
+          if (game.revealed[cell_coords.x][cell_coords.y] == CELL_MINE) {
             current_cell = cell_coords;
             game.state = STATE_LOST;
           }
@@ -120,30 +144,32 @@ i32 main(void) {
 
       break;
     case STATE_LOST:
-      bg_color = (Color){255, 0, 0, 255};
+      bg_color = color_red;
 
       for (u32 y = 0; y < game.size.y; y++) {
         for (u32 x = 0; x < game.size.x; x++) {
-          if (game.board[x][y] == CELL_BOMB && game.revealed[x][y] == CELL_HIDDEN) {
+          if (game.board[x][y] == CELL_MINE && game.revealed[x][y] == CELL_HIDDEN) {
             game.revealed[x][y] = game.board[x][y];
           }
         }
       }
 
-      game.revealed[current_cell.x][current_cell.y] = CELL_BOMB_EXPLODED;
-
-      DrawText("You LOST, press r to restart", 0, 0, 16, RED);
+      game.revealed[current_cell.x][current_cell.y] = CELL_MINE_EXPLODED;
 
       game.state = STATE_INFINITE;
       break;
     case STATE_WON:
-      DrawText("You Won :)", 0, 0, 16, BLACK);
+      bg_color = color_green;
+
       game.state = STATE_INFINITE;
       break;
     case STATE_INFINITE:
       if (IsKeyPressed(KEY_R)) {
+        u32 mines = game.mines;
+        u32 width = game.size.x;
+        u32 height = game.size.y;
         game_free(&game);
-        map_generate(&game, time(NULL), 16, 16, 40);
+        map_generate(&game, time(NULL), width, height, mines);
       }
       break;
     }
@@ -157,15 +183,16 @@ i32 main(void) {
   return 0;
 }
 
-void game_init(Game *game, u32 width, u32 height) {
+void game_init(Game *game, u32 width, u32 height, u32 mines) {
   game->size = (Vec2i32){width, height};
   game->board = malloc(sizeof(u32 *) * width);
   game->revealed = malloc(sizeof(u32 *) * width);
+  game->mines = mines;
   game->state = STATE_PLAYING;
 
   for (u32 x = 0; x < width; x++) {
-    game->board[x] = malloc(sizeof(u32) * height);
-    game->revealed[x] = malloc(sizeof(u32) * height);
+    game->board[x] = calloc(height, sizeof(u32));
+    game->revealed[x] = calloc(height, sizeof(u32));
   }
 }
 
@@ -179,26 +206,28 @@ void game_free(Game *game) {
   free(game->revealed);
 }
 
-void map_generate(Game *game, i32 seed, u32 width, u32 height, u32 mine_amt) {
-  game_init(game, width, height);
+void map_generate(Game *game, i32 seed, u32 width, u32 height, u32 mines) {
+  game_init(game, width, height, mines);
 
   SetRandomSeed(seed);
 
+  for (u32 n = 0; n < mines; n++) {
+    mine_set(game, width, height);
+  }
+
   for (u32 y = 0; y < game->size.y; y++) {
     for (u32 x = 0; x < game->size.x; x++) {
-      game->revealed[x][y] = CELL_HIDDEN;
-      if (GetRandomValue(0, 5) == 0) {
-        game->board[x][y] = CELL_BOMB;
-      } else {
-        game->board[x][y] = 0;
+      if (game->board[x][y] != CELL_MINE) {
+        game->board[x][y] = CELL_EMPTY;
       }
+      game->revealed[x][y] = CELL_HIDDEN;
     }
   }
 
   for (u32 y = 0; y < game->size.y; y++) {
     for (u32 x = 0; x < game->size.x; x++) {
 
-      if (game->board[x][y] != CELL_BOMB)
+      if (game->board[x][y] != CELL_MINE)
         continue;
 
       for (i32 dy = -1; dy <= 1; dy++) {
@@ -213,12 +242,23 @@ void map_generate(Game *game, i32 seed, u32 width, u32 height, u32 mine_amt) {
           if (nx < 0 || nx >= (i32)game->size.x || ny < 0 || ny >= (i32)game->size.y)
             continue;
 
-          if (game->board[nx][ny] != CELL_BOMB) {
+          if (game->board[nx][ny] != CELL_MINE) {
             game->board[nx][ny]++;
           }
         }
       }
     }
+  }
+}
+
+void mine_set(Game *game, u32 width, u32 height) {
+  u32 x = GetRandomValue(1, width - 1);
+  u32 y = GetRandomValue(1, height - 1);
+
+  if (game->board[x][y] == CELL_MINE) {
+    mine_set(game, width, height);
+  } else {
+    game->board[x][y] = CELL_MINE;
   }
 }
 
