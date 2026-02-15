@@ -1,6 +1,7 @@
 #include <raylib.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <time.h>
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -50,16 +51,16 @@ typedef enum {
   CELL_BOMB_EXPLODED = 11
 } CellType;
 
+void map_generate(Game *game, i32 seed, u32 width, u32 height, u32 mine_amt);
 void game_init(Game *game, u32 width, u32 height);
 void game_free(Game *game);
-void map_generate(Game *game, i32 seed);
 void cell_uncover(Game *game, i32 x, i32 y);
 void cell_draw(TextureAtlas textureAtlas, u32 index, Vector2 pos, i32 padding);
 
-i32 main(i32 argc, char *argv[]) {
+i32 main(void) {
 
   Game game;
-  game_init(&game, 16, 16);
+  map_generate(&game, time(NULL), 16, 16, 40);
 
   TextureAtlas textureAtlas = {.cell_size = 32, .cols = 8, .scale = 1.5f};
 
@@ -75,8 +76,6 @@ i32 main(i32 argc, char *argv[]) {
 
   SetTargetFPS(GetMonitorRefreshRate(GetCurrentMonitor()));
 
-  map_generate(&game, 300);
-
   Color bg_color = {200, 200, 200, 255};
 
   while (!WindowShouldClose()) {
@@ -88,13 +87,13 @@ i32 main(i32 argc, char *argv[]) {
         cell_draw(textureAtlas, game.revealed[x][y], (Vector2){x, y}, padding);
       }
     }
-
     Vec2i32 cell_coords = {.x = (GetMousePosition().x - padding) / scaled_cell_size,
                            .y = (GetMousePosition().y - padding) / scaled_cell_size};
     Vec2i32 current_cell;
 
     switch (game.state) {
     case STATE_PLAYING:
+      bg_color = (Color){200, 200, 200, 255};
 
       if (cell_coords.x >= 0 && cell_coords.x <= game.size.x && cell_coords.y >= 0 && cell_coords.y <= game.size.y) {
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -133,6 +132,8 @@ i32 main(i32 argc, char *argv[]) {
 
       game.revealed[current_cell.x][current_cell.y] = CELL_BOMB_EXPLODED;
 
+      DrawText("You LOST, press r to restart", 0, 0, 16, RED);
+
       game.state = STATE_INFINITE;
       break;
     case STATE_WON:
@@ -140,6 +141,10 @@ i32 main(i32 argc, char *argv[]) {
       game.state = STATE_INFINITE;
       break;
     case STATE_INFINITE:
+      if (IsKeyPressed(KEY_R)) {
+        game_free(&game);
+        map_generate(&game, time(NULL), 16, 16, 40);
+      }
       break;
     }
 
@@ -172,10 +177,10 @@ void game_free(Game *game) {
 
   free(game->board);
   free(game->revealed);
-  free(game);
 }
 
-void map_generate(Game *game, i32 seed) {
+void map_generate(Game *game, i32 seed, u32 width, u32 height, u32 mine_amt) {
+  game_init(game, width, height);
 
   SetRandomSeed(seed);
 
