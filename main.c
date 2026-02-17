@@ -69,6 +69,11 @@ i32 main(i32 argc, char *argv[]) {
   i32 rows = 16;
   i32 mines = 40;
 
+  if (mines > (columns * rows) * 0.31) {
+    printf("too many mines!\n");
+    exit(1);
+  }
+
   if (argc == 4) {
     columns = atoi(argv[1]);
     rows = atoi(argv[2]);
@@ -238,8 +243,6 @@ void map_generate(Game *game, i32 seed, u32 width, u32 height, u32 mines) {
   game_init(game, width, height, mines);
 
   SetRandomSeed(seed);
-
-  // TODO: bounds check
 
   for (u32 n = 0; n < mines; n++) {
     mine_set(game, width, height);
